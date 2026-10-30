@@ -1,0 +1,318 @@
+# DHIS with Docker: PostgreSQL, RabbitMQ, every service, and the gateway.
+#   1. Copy .env.example to .env and change the secrets.
+#   2. docker compose up --build
+#   3. Open http://localhost:8080
+# Events travel through RabbitMQ here (the local run_all.py uses plain HTTP instead).
+
+x-app: &app
+  build: .
+  env_file: .env
+  restart: unless-stopped
+  volumes:
+    - keys:/app/keys
+
+x-env: &env
+  IDENTITY_URL: http://identity:8003
+  REFERRAL_URL: http://referral:8001
+  DASHBOARD_URL: http://dashboard:8004
+  AUDIT_URL: http://audit:8005
+  RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-dhis}:${RABBITMQ_DEFAULT_PASS:-dhis}@rabbitmq:5672/
+  DB_USER: ${POSTGRES_USER:-dhis}
+  DB_PASSWORD: ${POSTGRES_PASSWORD:-dhis}
+  KRH_PATIENT_URL: http://patient-krh:8000
+  KRH_RECORDS_URL: http://records-krh:8002
+  BDH_PATIENT_URL: http://patient-bdh:9000
+  BDH_RECORDS_URL: http://records-bdh:9002
+
+services:
+  postgres:
+    image: postgres:16
+    env_file: .env
+    environment:
+      POSTGRES_DB: dhis
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/init-databases.sql:/docker-entrypoint-initdb.d/init-databases.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    env_file: .env
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  keys:
+    <<: *app
+    restart: "no"
+    entrypoint: ["python", "scripts/setup_dev.py", "--keys-only"]
+
+  identity:
+    <<: *app
+    command: gunicorn config.wsgi:application --bind 0.0.0.0:8003 --workers 1 --threads 8 --timeout 60
+    environment:
+      <<: *env
+      SERVICE: identity
+      DB_ENGINE: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DHIS_BACKGROUND: 1
+      DJANGO_DEBUG: 0
+      DB_NAME: db_auth
+      SEED_DEMO: 1
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8003/healthz')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    depends_on:
+      keys: {condition: service_completed_successfully}
+      postgres: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+
+  audit:
+    <<: *app
+    command: gunicorn config.wsgi:application --bind 0.0.0.0:8005 --workers 1 --threads 8 --timeout 60
+    environment:
+      <<: *env
+      SERVICE: audit
+      DB_ENGINE: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DHIS_BACKGROUND: 1
+      DJANGO_DEBUG: 0
+      DB_NAME: db_audit
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8005/healthz')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    depends_on:
+      keys: {condition: service_completed_successfully}
+      postgres: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+
+  audit-worker:
+    <<: *app
+    command: python manage.py consume_events
+    environment:
+      <<: *env
+      SERVICE: audit
+      DB_ENGINE: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DHIS_BACKGROUND: 1
+      DJANGO_DEBUG: 0
+      DB_NAME: db_audit
+      MIGRATE: 0
+    depends_on:
+      keys: {condition: service_completed_successfully}
+      audit: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+
+  dashboard:
+    <<: *app
+    command: gunicorn config.wsgi:application --bind 0.0.0.0:8004 --workers 1 --threads 8 --timeout 60
+    environment:
+      <<: *env
+      SERVICE: dashboard
+      DB_ENGINE: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DHIS_BACKGROUND: 1
+      DJANGO_DEBUG: 0
+      DB_NAME: db_dash
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8004/healthz')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    depends_on:
+      keys: {condition: service_completed_successfully}
+      postgres: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+
+  dashboard-worker:
+    <<: *app
+    command: python manage.py consume_events
+    environment:
+      <<: *env
+      SERVICE: dashboard
+      DB_ENGINE: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DHIS_BACKGROUND: 1
+      DJANGO_DEBUG: 0
+      DB_NAME: db_dash
+      MIGRATE: 0
+    depends_on:
+      keys: {condition: service_completed_successfully}
+      dashboard: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+
+  patient-krh:
+    <<: *app
+    command: gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 1 --threads 8 --timeout 60
+    environment:
+      <<: *env
+      SERVICE: patient
+      DB_ENGINE: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DHIS_BACKGROUND: 1
+      DJANGO_DEBUG: 0
+      DB_NAME: db_pat_a
+      NODE_CODE: KRH
+      PATIENT_URL: http://patient-krh:8000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    depends_on:
+      keys: {condition: service_completed_successfully}
+      postgres: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+      identity: {condition: service_healthy}
+
+  patient-bdh:
+    <<: *app
+    command: gunicorn config.wsgi:application --bind 0.0.0.0:9000 --workers 1 --threads 8 --timeout 60
+    environment:
+      <<: *env
+      SERVICE: patient
+      DB_ENGINE: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DHIS_BACKGROUND: 1
+      DJANGO_DEBUG: 0
+      DB_NAME: db_pat_b
+      NODE_CODE: BDH
+      PATIENT_URL: http://patient-bdh:9000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9000/healthz')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    depends_on:
+      keys: {condition: service_completed_successfully}
+      postgres: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+      identity: {condition: service_healthy}
+
+  records-krh:
+    <<: *app
+    command: gunicorn config.wsgi:application --bind 0.0.0.0:8002 --workers 1 --threads 8 --timeout 60
+    environment:
+      <<: *env
+      SERVICE: records
+      DB_ENGINE: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DHIS_BACKGROUND: 1
+      DJANGO_DEBUG: 0
+      DB_NAME: db_rec_a
+      NODE_CODE: KRH
+      PATIENT_URL: http://patient-krh:8000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/healthz')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    depends_on:
+      keys: {condition: service_completed_successfully}
+      postgres: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+      identity: {condition: service_healthy}
+
+  records-bdh:
+    <<: *app
+    command: gunicorn config.wsgi:application --bind 0.0.0.0:9002 --workers 1 --threads 8 --timeout 60
+    environment:
+      <<: *env
+      SERVICE: records
+      DB_ENGINE: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DHIS_BACKGROUND: 1
+      DJANGO_DEBUG: 0
+      DB_NAME: db_rec_b
+      NODE_CODE: BDH
+      PATIENT_URL: http://patient-bdh:9000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9002/healthz')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    depends_on:
+      keys: {condition: service_completed_successfully}
+      postgres: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+      identity: {condition: service_healthy}
+
+  referral:
+    <<: *app
+    command: gunicorn config.wsgi:application --bind 0.0.0.0:8001 --workers 1 --threads 8 --timeout 60
+    environment:
+      <<: *env
+      SERVICE: referral
+      DB_ENGINE: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DHIS_BACKGROUND: 1
+      DJANGO_DEBUG: 0
+      DB_NAME: db_refer
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/healthz')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    depends_on:
+      keys: {condition: service_completed_successfully}
+      postgres: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+      identity: {condition: service_healthy}
+
+  gateway:
+    <<: *app
+    command: gunicorn config.wsgi:application --bind 0.0.0.0:8080 --workers 1 --threads 8 --timeout 60
+    environment:
+      <<: *env
+      SERVICE: gateway
+      DB_ENGINE: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DHIS_BACKGROUND: 1
+      DJANGO_DEBUG: 0
+      DB_NAME: db_gateway
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    depends_on:
+      keys: {condition: service_completed_successfully}
+      postgres: {condition: service_healthy}
+      identity: {condition: service_healthy}
+      referral: {condition: service_healthy}
+    ports:
+      - "8080:8080"
+
+volumes:
+  pgdata:
+  keys:

@@ -1,0 +1,10 @@
+# DHIS Python requirements. Tested with Python 3.13 (Python 3.12 or newer is needed).
+# Install with:  pip install -r requirements.txt
+Django==6.1.2
+djangorestframework==3.18.3
+PyJWT==2.15.0
+cryptography==50.0.1
+requests==2.34.2
+pika==1.4.4
+gunicorn==26.2.0
+psycopg2-binary==2.9.13
