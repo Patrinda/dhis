@@ -36,6 +36,7 @@
     stopTimers();
     const nav = h("nav", { class: "nav", "aria-label": "Main" },
       NAV.filter((n) => n.roles.includes(user.role)).map((n) => h("a", { href: n.hash, "data-hash": n.hash }, icon(n.icon), n.label)));
+    const fullName = user.first_name ? user.first_name + " " + user.last_name : user.username;
     const hospital = user.hospital_name || (user.hospital_code ? user.hospital_code : "All hospitals");
     const dot = h("a", { class: "status-dot", href: "#/status" }, "Checking services");
     const rail = h("aside", { class: "rail", id: "rail" },
@@ -46,12 +47,16 @@
       nav,
       h("div", { class: "rail-foot" },
         dot,
-        h("div", { class: "who" }, user.first_name ? user.first_name + " " + user.last_name : user.username),
-        h("div", { class: "who-role" }, D.ui.ROLE_LABEL[user.role] || user.role),
-        h("div", { style: "margin-top:.5rem" }, h("button", { class: "link-btn", onclick: signOut }, "Sign out"))));
+        h("div", { class: "who-row" }, D.ui.avatar(fullName), h("div", null, h("div", { class: "who" }, fullName), h("div", { class: "who-role" }, D.ui.ROLE_LABEL[user.role] || user.role))),
+        h("div", { style: "margin-top:.6rem" }, h("button", { class: "link-btn", onclick: signOut }, "Sign out"))));
     mainEl = h("main", { class: "main", id: "main", tabindex: "-1" });
     const toggle = h("button", { class: "btn menu-toggle", "aria-label": "Open menu", onclick: () => rail.classList.toggle("open") }, icon("list"), "Menu");
-    shell = h("div", { class: "shell" }, rail, h("div", null, h("div", { style: "padding:.75rem 1rem 0" }, toggle), mainEl));
+    const canSearch = ["REGISTRATION", "NURSE", "DOCTOR", "SYSTEM_ADMIN"].includes(user.role);
+    const q = h("input", { type: "search", placeholder: "Search patients by name or ID", "aria-label": "Search patients" });
+    q.addEventListener("keydown", (e) => { if (e.key === "Enter" && q.value.trim()) { location.hash = "#/patients?q=" + encodeURIComponent(q.value.trim()); q.value = ""; } });
+    const today = new Intl.DateTimeFormat("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(new Date());
+    const topbar = h("header", { class: "topbar" }, toggle, canSearch ? h("div", { class: "search" }, icon("search"), q) : null, h("div", { class: "today" }, today));
+    shell = h("div", { class: "shell" }, rail, h("div", { class: "content" }, topbar, mainEl));
     clear(app).appendChild(shell);
     rail.addEventListener("click", (e) => { if (e.target.closest("a")) rail.classList.remove("open"); });
 
@@ -89,7 +94,7 @@
   }
 
   async function render() {
-    const hash = location.hash || "#/";
+    const hash = (location.hash || "#/").split("?")[0];
     const session = D.session.get();
     const token = ++renderToken;
     const route = ROUTES.map(([re, page, pub]) => ({ m: hash.match(re), page, pub })).find((r) => r.m);

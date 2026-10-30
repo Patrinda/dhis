@@ -70,6 +70,14 @@
   const pageHeader = (title, sub, actions) => h("div", { class: "page-head" },
     h("div", null, h("h1", null, title), sub ? h("div", { class: "sub" }, sub) : null),
     actions ? h("div", { class: "actions" }, actions) : null);
+  const initials = (name) => String(name || "?").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("");
+  const avatar = (name, cls) => h("span", { class: "avatar " + (cls || ""), "aria-hidden": "true" }, initials(name));
+  const pill = (priority) => h("span", { class: "pill pill-" + priority }, priorityLabel(priority) + " priority");
+  // Header card for one person or one transfer: avatar, name, a line of detail, and the actions on the right.
+  const identityHeader = (name, subKids, actions) => h("div", { class: "identity" },
+    avatar(name, "big"),
+    h("div", { class: "identity-text" }, h("h1", null, name), h("div", { class: "identity-sub" }, subKids)),
+    actions ? h("div", { class: "actions" }, actions) : null);
   const panel = (title, body, actions) => h("section", { class: "panel" },
     title ? h("div", { class: "panel-head" }, h("h2", null, title), actions ? h("div", { class: "actions" }, actions) : null) : null, body);
 
@@ -214,5 +222,5 @@
   }
 
   D.ui = { h, icon, clear, fmtDate, fmtDateTime, age, timeLeft, badge, statusLabel, priorityLabel, ROLE_LABEL, toast, spinner, empty, errorBox,
-    pageHeader, panel, table, pager, tabs, debounce, form, dialog, formDialog, confirmDialog };
+    pageHeader, identityHeader, avatar, initials, pill, panel, table, pager, tabs, debounce, form, dialog, formDialog, confirmDialog };
 })();

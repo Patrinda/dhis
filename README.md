@@ -105,9 +105,9 @@ Each person owns separate folders, so pull requests never conflict.
 | Ndacyayisenga Patrick | Team lead and repository owner | `shared/`, `services/gateway/`, `frontend/` core and styles, `scripts/`, `docker/`, root files |
 | Uwikuzo Theopiste | Identity and access | `services/identity/`, `frontend/js/pages/login.js`, `frontend/js/pages/admin.js` |
 | Mukeshimana Justine | Patients | `services/patient/`, `frontend/js/pages/patients.js` |
-| Masengesho Donatien | Clinical records | `services/records/`, `frontend/js/pages/records.js` |
+| Masengesho Donatien | Dashboard and audit | `services/dashboard/`, `services/audit/`, `frontend/js/pages/dashboard.js`, `frontend/js/pages/audit.js` |
 | Mudahogora Justine | Transfers | `services/referral/`, `frontend/js/pages/transfers.js` |
-| John Seemore | Dashboard and audit | `services/dashboard/`, `services/audit/`, `frontend/js/pages/dashboard.js`, `frontend/js/pages/audit.js` |
+| John Seemore | Clinical records | `services/records/`, `frontend/js/pages/records.js` |
 
 ### Working agreement
 
